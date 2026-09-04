@@ -1,13 +1,20 @@
--- NovaLib.lua
--- Lightweight UI library, API คล้าย Rayfield แต่เร็วกว่าและ dependency-free
+-- NovaLib_Extended.lua
+-- UI Library พร้อม Key System, Notification, Mobile Support, Config System
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 
 local Nova = {}
 Nova.__index = Nova
 
+local LocalPlayer = Players.LocalPlayer
+
+--===========================================================
+-- DEFAULT THEME
+--===========================================================
 local THEME = {
 	Background = Color3.fromRGB(18, 18, 24),
 	Panel      = Color3.fromRGB(26, 26, 34),
@@ -16,8 +23,14 @@ local THEME = {
 	Text       = Color3.fromRGB(240, 240, 245),
 	SubText    = Color3.fromRGB(160, 160, 175),
 	Stroke     = Color3.fromRGB(50, 50, 64),
+	Success    = Color3.fromRGB(46, 204, 113),
+	Error      = Color3.fromRGB(231, 76, 60),
+	Warning    = Color3.fromRGB(241, 196, 15),
 }
 
+--===========================================================
+-- UTILITIES
+--===========================================================
 local function tween(obj, time, props)
 	TweenService:Create(obj, TweenInfo.new(time, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), props):Play()
 end
@@ -59,7 +72,6 @@ local function button(parent)
 	return b
 end
 
--- ทำให้ลากหน้าต่างได้ (รองรับทั้งเมาส์และสัมผัส)
 local function makeDraggable(handle, frame)
 	local dragging, dragStart, startPos
 	handle.InputBegan:Connect(function(input)
@@ -87,10 +99,192 @@ local function makeDraggable(handle, frame)
 end
 
 --===========================================================
--- Window
+-- CONFIG SYSTEM (Save/Load)
+--===========================================================
+local ConfigSystem = {}
+ConfigSystem.Folder = "NovaLib_Configs"
+
+function ConfigSystem:Setup()
+	if not isfolder then return false end
+	if not isfolder(self.Folder) then
+		makefolder(self.Folder)
+	end
+	return true
+end
+
+function ConfigSystem:GetPath(name)
+	return self.Folder .. "/" .. name .. ".json"
+end
+
+function ConfigSystem:Save(name, data)
+	if not self:Setup() then return end
+	local success, encoded = pcall(HttpService.JSONEncode, HttpService, data)
+	if success then
+		writefile(self:GetPath(name), encoded)
+	end
+end
+
+function ConfigSystem:Load(name)
+	if not self:Setup() then return nil end
+	local path = self:GetPath(name)
+	if isfile(path) then
+		local success, data = pcall(HttpService.JSONDecode, HttpService, readfile(path))
+		if success then return data end
+	end
+	return nil
+end
+
+--===========================================================
+-- KEY SYSTEM
+--===========================================================
+function Nova:VerifyKey(config)
+	config = config or {}
+	local correctKeys = config.Keys or {}
+	local callback = config.Callback
+	local title = config.Title or "Key System"
+	local note = config.Note or "กรุณากรอก Key เพื่อเข้าใช้งาน"
+	local theme = config.Theme or THEME
+
+	local verified = false
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "NovaKeySystem"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.IgnoreGuiInset = true
+	gui.Parent = RunService:IsStudio()
+		and LocalPlayer:WaitForChild("PlayerGui")
+		or (gethui and gethui() or game:GetService("CoreGui"))
+
+	local main = Instance.new("Frame")
+	main.Size = UDim2.new(0, 400, 0, 220)
+	main.Position = UDim2.new(0.5, -200, 0.5, -110)
+	main.BackgroundColor3 = theme.Background
+	main.BorderSizePixel = 0
+	main.Parent = gui
+	round(main, 12)
+	stroke(main)
+
+	local topbar = Instance.new("Frame")
+	topbar.Size = UDim2.new(1, 0, 0, 44)
+	topbar.BackgroundColor3 = theme.Panel
+	topbar.BorderSizePixel = 0
+	topbar.Parent = main
+	round(topbar, 12)
+
+	local titleLabel = label(topbar, title, 15, theme.Text, true)
+	titleLabel.Position = UDim2.new(0, 16, 0, 0)
+	titleLabel.Size = UDim2.new(1, -32, 1, 0)
+
+	-- Close button
+	local closeBtn = button(topbar)
+	closeBtn.Size = UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = UDim2.new(1, -38, 0.5, -15)
+	local closeBg = Instance.new("Frame")
+	closeBg.Size = UDim2.new(1, 0, 1, 0)
+	closeBg.BackgroundColor3 = theme.Element
+	closeBg.BorderSizePixel = 0
+	closeBg.Parent = closeBtn
+	round(closeBg, 8)
+	local closeText = label(closeBg, "×", 18, theme.SubText, true)
+	closeText.Size = UDim2.new(1, 0, 1, 0)
+	closeText.TextXAlignment = Enum.TextXAlignment.Center
+	closeBtn.MouseButton1Click:Connect(function()
+		tween(main, 0.2, {Size = UDim2.new(0, 400, 0, 0)})
+		task.delay(0.2, function() gui:Destroy() end)
+	end)
+
+	makeDraggable(topbar, main)
+
+	local noteLabel = label(main, note, 12, theme.SubText)
+	noteLabel.Position = UDim2.new(0, 16, 0, 56)
+	noteLabel.Size = UDim2.new(1, -32, 0, 20)
+	noteLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+	local inputBg = Instance.new("Frame")
+	inputBg.Size = UDim2.new(1, -32, 0, 40)
+	inputBg.Position = UDim2.new(0, 16, 0, 90)
+	inputBg.BackgroundColor3 = theme.Element
+	inputBg.BorderSizePixel = 0
+	inputBg.Parent = main
+	round(inputBg, 8)
+	stroke(inputBg)
+
+	local inputBox = Instance.new("TextBox")
+	inputBox.Size = UDim2.new(1, -20, 1, 0)
+	inputBox.Position = UDim2.new(0, 10, 0, 0)
+	inputBox.BackgroundTransparency = 1
+	inputBox.Font = Enum.Font.Gotham
+	inputBox.TextSize = 14
+	inputBox.TextColor3 = theme.Text
+	inputBox.PlaceholderText = "ใส่ Key ที่นี่..."
+	inputBox.PlaceholderColor3 = theme.SubText
+	inputBox.Text = ""
+	inputBox.TextXAlignment = Enum.TextXAlignment.Center
+	inputBox.Parent = inputBg
+
+	local statusLabel = label(main, "", 12, theme.Error)
+	statusLabel.Position = UDim2.new(0, 16, 0, 136)
+	statusLabel.Size = UDim2.new(1, -32, 0, 20)
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+	local submitBtn = Instance.new("TextButton")
+	submitBtn.Size = UDim2.new(1, -32, 0, 36)
+	submitBtn.Position = UDim2.new(0, 16, 0, 164)
+	submitBtn.BackgroundColor3 = theme.Accent
+	submitBtn.BorderSizePixel = 0
+	submitBtn.Text = "เข้าใช้งาน"
+	submitBtn.Font = Enum.Font.GothamBold
+	submitBtn.TextSize = 14
+	submitBtn.TextColor3 = theme.Text
+	submitBtn.Parent = main
+	round(submitBtn, 8)
+
+	local function verify(key)
+		for _, k in ipairs(correctKeys) do
+			if key == k then return true end
+		end
+		return false
+	end
+
+	submitBtn.MouseButton1Click:Connect(function()
+		local key = inputBox.Text
+		if verify(key) then
+			verified = true
+			statusLabel.TextColor3 = theme.Success
+			statusLabel.Text = "✓ Key ถูกต้อง!"
+			tween(main, 0.3, {Size = UDim2.new(0, 400, 0, 0)})
+			task.delay(0.3, function()
+				gui:Destroy()
+				if callback then callback() end
+			end)
+		else
+			statusLabel.Text = "✕ Key ไม่ถูกต้อง กรุณาลองใหม่"
+			tween(inputBg, 0.1, {BackgroundColor3 = theme.Error})
+			task.delay(0.2, function()
+				tween(inputBg, 0.2, {BackgroundColor3 = theme.Element})
+			end)
+		end
+	end)
+
+	inputBox.FocusLost:Connect(function()
+		submitBtn.MouseButton1Click:Fire()
+	end)
+
+	return {
+		Verified = function() return verified end,
+		Destroy = function() gui:Destroy() end
+	}
+end
+
+--===========================================================
+-- WINDOW
 --===========================================================
 function Nova:CreateWindow(config)
 	config = config or {}
+
+	local theme = config.Theme or THEME
+	local configName = config.ConfigName or nil
+	local savedConfig = configName and ConfigSystem:Load(configName) or {}
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = config.Name or "NovaUI"
@@ -98,14 +292,14 @@ function Nova:CreateWindow(config)
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.IgnoreGuiInset = true
 	gui.Parent = RunService:IsStudio()
-		and game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+		and LocalPlayer:WaitForChild("PlayerGui")
 		or (gethui and gethui() or game:GetService("CoreGui"))
 
 	-- ตัวหน้าต่างหลัก
 	local main = Instance.new("Frame")
 	main.Size = UDim2.new(0, 560, 0, 380)
 	main.Position = UDim2.new(0.5, -280, 0.5, -190)
-	main.BackgroundColor3 = THEME.Background
+	main.BackgroundColor3 = theme.Background
 	main.BorderSizePixel = 0
 	main.Parent = gui
 	round(main, 10)
@@ -114,31 +308,44 @@ function Nova:CreateWindow(config)
 	-- แถบหัว
 	local topbar = Instance.new("Frame")
 	topbar.Size = UDim2.new(1, 0, 0, 42)
-	topbar.BackgroundColor3 = THEME.Panel
+	topbar.BackgroundColor3 = theme.Panel
 	topbar.BorderSizePixel = 0
 	topbar.Parent = main
 	round(topbar, 10)
 
-	local title = label(topbar, config.Title or "Nova Hub", 14, THEME.Text, true)
+	local title = label(topbar, config.Title or "Nova Hub", 14, theme.Text, true)
 	title.Position = UDim2.new(0, 14, 0, 0)
-	title.Size = UDim2.new(1, -100, 1, 0)
+	title.Size = UDim2.new(1, -140, 1, 0)
 
-	-- ปุ่มย่อ/ปิด
+	-- ปุ่มปิด (X)
+	local closeBtn = button(topbar)
+	closeBtn.Size = UDim2.new(0, 30, 0, 26)
+	closeBtn.Position = UDim2.new(1, -36, 0.5, -13)
+	local closeBg = Instance.new("Frame")
+	closeBg.Size = UDim2.new(1, 0, 1, 0)
+	closeBg.BackgroundColor3 = theme.Element
+	closeBg.BorderSizePixel = 0
+	closeBg.Parent = closeBtn
+	round(closeBg, 6)
+	local closeText = label(closeBg, "×", 16, theme.SubText, true)
+	closeText.Size = UDim2.new(1, 0, 1, 0)
+	closeText.TextXAlignment = Enum.TextXAlignment.Center
+	closeBtn.MouseButton1Click:Connect(function()
+		tween(main, 0.2, {Size = UDim2.new(0, 560, 0, 0)})
+		task.delay(0.2, function() gui:Destroy() end)
+	end)
+
+	-- ปุ่มย่อ (-)
 	local minimize = button(topbar)
 	minimize.Size = UDim2.new(0, 30, 0, 26)
-	minimize.Position = UDim2.new(1, -40, 0.5, -13)
+	minimize.Position = UDim2.new(1, -72, 0.5, -13)
 	local minBg = Instance.new("Frame")
 	minBg.Size = UDim2.new(1, 0, 1, 0)
-	minBg.BackgroundColor3 = THEME.Element
+	minBg.BackgroundColor3 = theme.Element
 	minBg.BorderSizePixel = 0
 	minBg.Parent = minimize
 	round(minBg, 6)
-	label(minBg, "-", 16, THEME.SubText, true).Size = UDim2.new(1, 0, 1, 0)
-	for _, child in ipairs(minBg:GetChildren()) do
-		if child:IsA("TextLabel") then
-			child.TextXAlignment = Enum.TextXAlignment.Center
-		end
-	end
+	label(minBg, "-", 16, theme.SubText, true).Size = UDim2.new(1, 0, 1, 0)
 
 	makeDraggable(topbar, main)
 
@@ -146,7 +353,7 @@ function Nova:CreateWindow(config)
 	local tabBar = Instance.new("Frame")
 	tabBar.Size = UDim2.new(0, 140, 1, -52)
 	tabBar.Position = UDim2.new(0, 8, 0, 48)
-	tabBar.BackgroundColor3 = THEME.Panel
+	tabBar.BackgroundColor3 = theme.Panel
 	tabBar.BorderSizePixel = 0
 	tabBar.Parent = main
 	round(tabBar, 8)
@@ -190,20 +397,136 @@ function Nova:CreateWindow(config)
 		content.Visible = not minimized
 	end)
 
-	local Window = {Tabs = {}}
+	-- Mobile Toggle Button
+	if UserInputService.TouchEnabled then
+		local mobileBtn = Instance.new("TextButton")
+		mobileBtn.Size = UDim2.new(0, 50, 0, 50)
+		mobileBtn.Position = UDim2.new(0, 20, 0.5, -25)
+		mobileBtn.BackgroundColor3 = theme.Accent
+		mobileBtn.Text = "⚡"
+		mobileBtn.Font = Enum.Font.GothamBold
+		mobileBtn.TextSize = 24
+		mobileBtn.TextColor3 = theme.Text
+		mobileBtn.Parent = gui
+		round(mobileBtn, 25)
+		
+		local mobileDragging = false
+		mobileBtn.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch then
+				mobileDragging = true
+			end
+		end)
+		mobileBtn.InputEnded:Connect(function()
+			mobileDragging = false
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if mobileDragging and input.UserInputType == Enum.UserInputType.Touch then
+				mobileBtn.Position = UDim2.new(0, input.Position.X - 25, 0, input.Position.Y - 25)
+			end
+		end)
+		
+		mobileBtn.MouseButton1Click:Connect(function()
+			visible = not visible
+			main.Visible = visible
+		end)
+	end
+
+	local Window = {
+		Tabs = {},
+		Elements = {},
+		Theme = theme,
+		GUI = gui,
+		Main = main,
+		ConfigName = configName,
+		SavedConfig = savedConfig,
+	}
+
+	function Window:Destroy()
+		gui:Destroy()
+	end
+
+	function Window:Hide()
+		main.Visible = false
+	end
+
+	function Window:Show()
+		main.Visible = true
+	end
+
+	-- Notification System
+	function Window:Notify(cfg)
+		cfg = cfg or {}
+		local notifGui = Instance.new("ScreenGui")
+		notifGui.Name = "NovaNotification"
+		notifGui.ResetOnSpawn = false
+		notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		notifGui.Parent = RunService:IsStudio()
+			and LocalPlayer:WaitForChild("PlayerGui")
+			or (gethui and gethui() or game:GetService("CoreGui"))
+
+		local notifFrame = Instance.new("Frame")
+		notifFrame.Size = UDim2.new(0, 280, 0, 0)
+		notifFrame.Position = UDim2.new(1, -300, 1, -100)
+		notifFrame.BackgroundColor3 = theme.Panel
+		notifFrame.BorderSizePixel = 0
+		notifFrame.ClipsDescendants = true
+		notifFrame.Parent = notifGui
+		round(notifFrame, 10)
+		stroke(notifFrame)
+
+		local notifTitle = label(notifFrame, cfg.Title or "Notification", 13, theme.Text, true)
+		notifTitle.Position = UDim2.new(0, 14, 0, 10)
+		notifTitle.Size = UDim2.new(1, -28, 0, 18)
+
+		local notifBody = label(notifFrame, cfg.Content or "", 12, theme.SubText)
+		notifBody.Position = UDim2.new(0, 14, 0, 30)
+		notifBody.Size = UDim2.new(1, -28, 0, 16)
+		notifBody.TextWrapped = true
+
+		local notifDuration = cfg.Duration or 3
+
+		tween(notifFrame, 0.3, {Size = UDim2.new(0, 280, 0, 60)})
+
+		task.delay(notifDuration, function()
+			tween(notifFrame, 0.3, {Position = UDim2.new(1, 20, 1, -100)})
+			task.delay(0.3, function()
+				notifGui:Destroy()
+			end)
+		end)
+	end
+
+	-- Save Config
+	function Window:SaveConfig()
+		if not self.ConfigName then return end
+		local data = {}
+		for name, element in pairs(self.Elements) do
+			if element.Type == "Toggle" then
+				data[name] = {Type = "Toggle", Value = element.State}
+			elseif element.Type == "Slider" then
+				data[name] = {Type = "Slider", Value = element.Value}
+			elseif element.Type == "Dropdown" then
+				data[name] = {Type = "Dropdown", Value = element.Value}
+			elseif element.Type == "Keybind" then
+				data[name] = {Type = "Keybind", Value = element.Value}
+			elseif element.Type == "Input" then
+				data[name] = {Type = "Input", Value = element.Value}
+			end
+		end
+		ConfigSystem:Save(self.ConfigName, data)
+	end
 
 	--===========================================================
-	-- Tab
+	-- TAB
 	--===========================================================
 	function Window:CreateTab(name)
 		local tabBtn = Instance.new("TextButton")
 		tabBtn.Size = UDim2.new(1, 0, 0, 34)
-		tabBtn.BackgroundColor3 = THEME.Element
+		tabBtn.BackgroundColor3 = theme.Element
 		tabBtn.BackgroundTransparency = 1
 		tabBtn.Text = name
 		tabBtn.Font = Enum.Font.GothamBold
 		tabBtn.TextSize = 13
-		tabBtn.TextColor3 = THEME.SubText
+		tabBtn.TextColor3 = theme.SubText
 		tabBtn.AutoButtonColor = false
 		tabBtn.Parent = tabList
 		round(tabBtn, 6)
@@ -212,7 +535,7 @@ function Nova:CreateWindow(config)
 		page.Size = UDim2.new(1, 0, 1, 0)
 		page.BackgroundTransparency = 1
 		page.ScrollBarThickness = 3
-		page.ScrollBarImageColor3 = THEME.Accent
+		page.ScrollBarImageColor3 = theme.Accent
 		page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		page.CanvasSize = UDim2.new(0, 0, 0, 0)
 		page.Visible = false
@@ -230,11 +553,11 @@ function Nova:CreateWindow(config)
 			for _, t in pairs(Window.Tabs) do
 				t.Page.Visible = false
 				tween(t.Button, 0.2, {BackgroundTransparency = 1})
-				t.Button.TextColor3 = THEME.SubText
+				t.Button.TextColor3 = theme.SubText
 			end
 			page.Visible = true
 			tween(tabBtn, 0.2, {BackgroundTransparency = 0})
-			tabBtn.TextColor3 = THEME.Text
+			tabBtn.TextColor3 = theme.Text
 		end
 		tabBtn.MouseButton1Click:Connect(selectTab)
 
@@ -246,7 +569,7 @@ function Nova:CreateWindow(config)
 		local function newElement(height)
 			local holder = Instance.new("Frame")
 			holder.Size = UDim2.new(1, 0, 0, height)
-			holder.BackgroundColor3 = THEME.Panel
+			holder.BackgroundColor3 = theme.Panel
 			holder.BorderSizePixel = 0
 			holder.Parent = page
 			round(holder, 8)
@@ -254,9 +577,31 @@ function Nova:CreateWindow(config)
 			return holder
 		end
 
+		local function registerElement(name, data)
+			if name then
+				Window.Elements[name] = data
+				if savedConfig and savedConfig[name] then
+					local saved = savedConfig[name]
+					if saved.Type == data.Type then
+						if data.Type == "Toggle" and data.Set then
+							task.defer(function() data.Set(saved.Value) end)
+						elseif data.Type == "Slider" and data.Set then
+							task.defer(function() data.Set(saved.Value) end)
+						elseif data.Type == "Dropdown" and data.Set then
+							task.defer(function() data.Set(saved.Value) end)
+						elseif data.Type == "Keybind" and data.Set then
+							task.defer(function() data.Set(saved.Value) end)
+						elseif data.Type == "Input" and data.Set then
+							task.defer(function() data.Set(saved.Value) end)
+						end
+					end
+				end
+			end
+		end
+
 		-- Section
 		function Tab:CreateSection(name)
-			local l = label(page, string.upper(name), 11, THEME.Accent, true)
+			local l = label(page, string.upper(name), 11, theme.Accent, true)
 			l.Size = UDim2.new(1, 0, 0, 18)
 			return {Set = function(_, t) l.Text = string.upper(t) end}
 		end
@@ -264,7 +609,7 @@ function Nova:CreateWindow(config)
 		-- Label
 		function Tab:CreateLabel(text)
 			local holder = newElement(32)
-			local l = label(holder, text, 13, THEME.Text)
+			local l = label(holder, text, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(1, -24, 1, 0)
 			return {Set = function(_, t) l.Text = t end}
@@ -273,10 +618,10 @@ function Nova:CreateWindow(config)
 		-- Paragraph
 		function Tab:CreateParagraph(titleText, bodyText)
 			local holder = newElement(64)
-			local t = label(holder, titleText, 13, THEME.Text, true)
+			local t = label(holder, titleText, 13, theme.Text, true)
 			t.Position = UDim2.new(0, 12, 0, 8)
 			t.Size = UDim2.new(1, -24, 0, 16)
-			local b = label(holder, bodyText, 12, THEME.SubText)
+			local b = label(holder, bodyText, 12, theme.SubText)
 			b.Position = UDim2.new(0, 12, 0, 26)
 			b.Size = UDim2.new(1, -24, 1, -30)
 			b.TextWrapped = true
@@ -287,15 +632,15 @@ function Nova:CreateWindow(config)
 		-- Button
 		function Tab:CreateButton(cfg)
 			local holder = newElement(40)
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(1, -24, 1, 0)
 			local click = button(holder)
 			click.Size = UDim2.new(1, 0, 1, 0)
 			click.MouseButton1Click:Connect(function()
-				tween(holder, 0.1, {BackgroundColor3 = THEME.Accent})
+				tween(holder, 0.1, {BackgroundColor3 = theme.Accent})
 				task.delay(0.15, function()
-					tween(holder, 0.3, {BackgroundColor3 = THEME.Panel})
+					tween(holder, 0.3, {BackgroundColor3 = theme.Panel})
 				end)
 				if cfg.Callback then task.spawn(cfg.Callback) end
 			end)
@@ -305,14 +650,14 @@ function Nova:CreateWindow(config)
 		-- Toggle
 		function Tab:CreateToggle(cfg)
 			local holder = newElement(40)
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(1, -70, 1, 0)
 
 			local track = Instance.new("Frame")
 			track.Size = UDim2.new(0, 44, 0, 22)
 			track.Position = UDim2.new(1, -56, 0.5, -11)
-			track.BackgroundColor3 = THEME.Element
+			track.BackgroundColor3 = theme.Element
 			track.BorderSizePixel = 0
 			track.Parent = holder
 			round(track, 11)
@@ -320,7 +665,7 @@ function Nova:CreateWindow(config)
 			local knob = Instance.new("Frame")
 			knob.Size = UDim2.new(0, 16, 0, 16)
 			knob.Position = UDim2.new(0, 3, 0.5, -8)
-			knob.BackgroundColor3 = THEME.Text
+			knob.BackgroundColor3 = theme.Text
 			knob.BorderSizePixel = 0
 			knob.Parent = track
 			round(knob, 8)
@@ -329,25 +674,33 @@ function Nova:CreateWindow(config)
 			local api = {}
 			function api:Set(v)
 				state = v
-				tween(track, 0.2, {BackgroundColor3 = v and THEME.Accent or THEME.Element})
+				tween(track, 0.2, {BackgroundColor3 = v and theme.Accent or theme.Element})
 				tween(knob, 0.2, {Position = v and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)})
 				if cfg.Callback then task.spawn(cfg.Callback, v) end
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Toggle", State = state, Set = api.Set})
+					Window:SaveConfig()
+				end
 			end
 			local click = button(holder)
 			click.Size = UDim2.new(1, 0, 1, 0)
 			click.MouseButton1Click:Connect(function() api:Set(not state) end)
 			if state then task.defer(function() api:Set(true) end) end
+			
+			if cfg.Flag then
+				registerElement(cfg.Flag, {Type = "Toggle", State = state, Set = api.Set})
+			end
 			return api
 		end
 
 		-- Slider
 		function Tab:CreateSlider(cfg)
 			local holder = newElement(52)
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 8)
 			l.Size = UDim2.new(0.7, 0, 0, 16)
 
-			local val = label(holder, tostring(cfg.CurrentValue or cfg.Range[1]), 12, THEME.Accent, true)
+			local val = label(holder, tostring(cfg.CurrentValue or cfg.Range[1]), 12, theme.Accent, true)
 			val.Position = UDim2.new(0.7, 0, 0, 8)
 			val.Size = UDim2.new(0.3, -12, 0, 16)
 			val.TextXAlignment = Enum.TextXAlignment.Right
@@ -355,14 +708,14 @@ function Nova:CreateWindow(config)
 			local bar = Instance.new("Frame")
 			bar.Size = UDim2.new(1, -24, 0, 6)
 			bar.Position = UDim2.new(0, 12, 0, 34)
-			bar.BackgroundColor3 = THEME.Element
+			bar.BackgroundColor3 = theme.Element
 			bar.BorderSizePixel = 0
 			bar.Parent = holder
 			round(bar, 3)
 
 			local fill = Instance.new("Frame")
 			fill.Size = UDim2.new(0, 0, 1, 0)
-			fill.BackgroundColor3 = THEME.Accent
+			fill.BackgroundColor3 = theme.Accent
 			fill.BorderSizePixel = 0
 			fill.Parent = bar
 			round(fill, 3)
@@ -381,6 +734,10 @@ function Nova:CreateWindow(config)
 				tween(fill, 0.05, {Size = UDim2.new((current - min) / (max - min), 0, 1, 0)})
 				val.Text = tostring(current)
 				if cfg.Callback then task.spawn(cfg.Callback, current) end
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Slider", Value = current, Set = api.Set})
+					Window:SaveConfig()
+				end
 			end
 
 			function api:Set(v)
@@ -388,6 +745,10 @@ function Nova:CreateWindow(config)
 				fill.Size = UDim2.new((current - min) / (max - min), 0, 1, 0)
 				val.Text = tostring(current)
 				if cfg.Callback then task.spawn(cfg.Callback, current) end
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Slider", Value = current, Set = api.Set})
+					Window:SaveConfig()
+				end
 			end
 
 			bar.InputBegan:Connect(function(input)
@@ -411,20 +772,24 @@ function Nova:CreateWindow(config)
 			end)
 
 			task.defer(function() api:Set(current) end)
+			
+			if cfg.Flag then
+				registerElement(cfg.Flag, {Type = "Slider", Value = current, Set = api.Set})
+			end
 			return api
 		end
 
 		-- Input
 		function Tab:CreateInput(cfg)
 			local holder = newElement(40)
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(0.45, 0, 1, 0)
 
 			local boxBg = Instance.new("Frame")
 			boxBg.Size = UDim2.new(0.45, -12, 0, 26)
 			boxBg.Position = UDim2.new(0.55, 0, 0.5, -13)
-			boxBg.BackgroundColor3 = THEME.Element
+			boxBg.BackgroundColor3 = theme.Element
 			boxBg.BorderSizePixel = 0
 			boxBg.Parent = holder
 			round(boxBg, 6)
@@ -435,18 +800,32 @@ function Nova:CreateWindow(config)
 			box.BackgroundTransparency = 1
 			box.Font = Enum.Font.Gotham
 			box.TextSize = 12
-			box.TextColor3 = THEME.Text
+			box.TextColor3 = theme.Text
 			box.PlaceholderText = cfg.PlaceholderText or ""
-			box.PlaceholderColor3 = THEME.SubText
+			box.PlaceholderColor3 = theme.SubText
 			box.Text = cfg.CurrentValue or ""
 			box.ClearTextOnFocus = false
 			box.TextXAlignment = Enum.TextXAlignment.Left
 			box.Parent = boxBg
 
+			local api = {
+				Set = function(_, t) box.Text = t end,
+				Value = cfg.CurrentValue or ""
+			}
+
 			box.FocusLost:Connect(function(enter)
+				api.Value = box.Text
 				if enter and cfg.Callback then task.spawn(cfg.Callback, box.Text) end
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Input", Value = box.Text, Set = api.Set})
+					Window:SaveConfig()
+				end
 			end)
-			return {Set = function(_, t) box.Text = t end}
+			
+			if cfg.Flag then
+				registerElement(cfg.Flag, {Type = "Input", Value = box.Text, Set = api.Set})
+			end
+			return api
 		end
 
 		-- Dropdown
@@ -455,11 +834,11 @@ function Nova:CreateWindow(config)
 			local optionHeight = 26
 			local holder = newElement(40)
 
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(0.45, 0, 0, 40)
 
-			local selected = label(holder, cfg.CurrentOption or cfg.Options[1] or "-", 12, THEME.Accent, true)
+			local selected = label(holder, cfg.CurrentOption or cfg.Options[1] or "-", 12, theme.Accent, true)
 			selected.Position = UDim2.new(0.45, 0, 0, 0)
 			selected.Size = UDim2.new(0.55, -12, 0, 40)
 			selected.TextXAlignment = Enum.TextXAlignment.Right
@@ -467,7 +846,7 @@ function Nova:CreateWindow(config)
 			local listFrame = Instance.new("Frame")
 			listFrame.Size = UDim2.new(1, -24, 0, 0)
 			listFrame.Position = UDim2.new(0, 12, 0, 42)
-			listFrame.BackgroundColor3 = THEME.Element
+			listFrame.BackgroundColor3 = theme.Element
 			listFrame.BorderSizePixel = 0
 			listFrame.ClipsDescendants = true
 			listFrame.Parent = holder
@@ -489,7 +868,7 @@ function Nova:CreateWindow(config)
 					ob.BackgroundTransparency = 1
 					ob.Font = Enum.Font.Gotham
 					ob.TextSize = 12
-					ob.TextColor3 = opt == current and THEME.Accent or THEME.SubText
+					ob.TextColor3 = opt == current and theme.Accent or theme.SubText
 					ob.Text = opt
 					ob.Parent = listFrame
 					ob.MouseButton1Click:Connect(function()
@@ -504,6 +883,10 @@ function Nova:CreateWindow(config)
 				current = opt
 				selected.Text = opt
 				if cfg.Callback then task.spawn(cfg.Callback, opt) end
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Dropdown", Value = current, Set = api.Set})
+					Window:SaveConfig()
+				end
 			end
 			function api:Refresh(opts)
 				cfg.Options = opts
@@ -519,30 +902,45 @@ function Nova:CreateWindow(config)
 			end)
 
 			refresh()
+			
+			if cfg.Flag then
+				registerElement(cfg.Flag, {Type = "Dropdown", Value = current, Set = api.Set})
+			end
 			return api
 		end
 
 		-- Keybind
 		function Tab:CreateKeybind(cfg)
 			local holder = newElement(40)
-			local l = label(holder, cfg.Name, 13, THEME.Text)
+			local l = label(holder, cfg.Name, 13, theme.Text)
 			l.Position = UDim2.new(0, 12, 0, 0)
 			l.Size = UDim2.new(0.6, 0, 1, 0)
 
 			local bindBg = Instance.new("Frame")
 			bindBg.Size = UDim2.new(0, 90, 0, 24)
 			bindBg.Position = UDim2.new(1, -102, 0.5, -12)
-			bindBg.BackgroundColor3 = THEME.Element
+			bindBg.BackgroundColor3 = theme.Element
 			bindBg.BorderSizePixel = 0
 			bindBg.Parent = holder
 			round(bindBg, 6)
 
-			local bindLabel = label(bindBg, cfg.CurrentKeybind or "None", 12, THEME.Text, true)
+			local bindLabel = label(bindBg, cfg.CurrentKeybind or "None", 12, theme.Text, true)
 			bindLabel.Size = UDim2.new(1, 0, 1, 0)
 			bindLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 			local binding = false
 			local current = cfg.CurrentKeybind
+			local api = {}
+
+			function api:Set(k)
+				current = k
+				bindLabel.Text = k or "None"
+				if cfg.Flag then
+					registerElement(cfg.Flag, {Type = "Keybind", Value = current, Set = api.Set})
+					Window:SaveConfig()
+				end
+			end
+
 			local click = button(holder)
 			click.Size = UDim2.new(1, 0, 1, 0)
 			click.MouseButton1Click:Connect(function()
@@ -556,12 +954,19 @@ function Nova:CreateWindow(config)
 					current = input.KeyCode.Name
 					bindLabel.Text = current
 					if cfg.Callback then task.spawn(cfg.Callback, current) end
+					if cfg.Flag then
+						registerElement(cfg.Flag, {Type = "Keybind", Value = current, Set = api.Set})
+						Window:SaveConfig()
+					end
 				elseif not gpe and not binding and current and input.KeyCode.Name == current then
 					if cfg.OnPressed then task.spawn(cfg.OnPressed) end
 				end
 			end)
 
-			return {Set = function(_, k) current = k; bindLabel.Text = k end}
+			if cfg.Flag then
+				registerElement(cfg.Flag, {Type = "Keybind", Value = current, Set = api.Set})
+			end
+			return api
 		end
 
 		return Tab
